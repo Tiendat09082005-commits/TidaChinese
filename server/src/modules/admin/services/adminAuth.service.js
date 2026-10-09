@@ -2,6 +2,8 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import pool from '../../../config/db.js'
 import { createSession, destroyAllUserSessions } from '../../shared/services/session.service.js'
+import { authenticator } from 'otplib'
+import qrcode from 'qrcode'
 
 const getRoleName = (roleId) => {
   switch (roleId) {
@@ -70,5 +72,52 @@ export const loginAdmin = async ({ email, password, deviceInfo = null, ipAddress
     status: 'REQUIRE_VERIFY',
     temp_token: tempToken,
     message: 'Yêu cầu xác thực mã 2FA.'
+  }
+}
+
+// [POST] /api/admin/setup-2fa
+export const generate2faSecret = async (tempToken) => {
+  if (!tempToken) {
+    throw { status: 401, message: 'Yêu cầu token xác thực hợp lệ!' }
+  }
+
+  let decoded;
+  try {
+    decoded = jwt.verify(tempToken, process.env.JWT_SECRET || 'super_secret_key_123')
+  } catch (err) {
+    throw { status: 401, message: 'Token đã hết hạn hoặc không hợp lệ!' }
+  }
+
+  const userId = decoded.id
+  const email = decoded.email
+
+  // Tạo khóa bí mật mới
+  const secret = authenticator.generateSecret()
+
+  // Kiểm tra xem user đã có record trong bảng admin_2fa chưa
+  const checkQuery = 'SELECT id FROM admin_2fa WHERE user_id = $1'
+  const checkResult = await pool.query(checkQuery, [userId])
+
+  if (checkResult.rows.length > 0) {
+    // Nếu có rồi thì update lại secret mới (và đảm bảo is_enabled = false)
+    const updateQuery = 'UPDATE admin_2fa SET secret = $1, is_enabled = false WHERE user_id = $2'
+    await pool.query(updateQuery, [secret, userId])
+  } else {
+    // Nếu chưa có thì tạo mới
+    const insertQuery = 'INSERT INTO admin_2fa (user_id, secret, is_enabled) VALUES ($1, $2, false)'
+    await pool.query(insertQuery, [userId, secret])
+  }
+
+  // Tạo URL theo chuẩn TOTP để Google Authenticator nhận diện
+  const serviceName = 'TidaChinese Admin'
+  const otpauthUrl = authenticator.keyuri(email, serviceName, secret)
+
+  // Sinh mã QR dạng Base64 Image
+  const qrCodeDataUrl = await qrcode.toDataURL(otpauthUrl)
+
+  return {
+    secret,
+    qrCodeUrl: qrCodeDataUrl,
+    message: 'Vui lòng sử dụng Google Authenticator để quét mã QR này.'
   }
 }
