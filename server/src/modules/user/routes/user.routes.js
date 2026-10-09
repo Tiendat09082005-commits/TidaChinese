@@ -8,6 +8,7 @@ import authenticate from '../../../middlewares/authenticate.js'
 
 const router = Router()
 
+
 // Public authentication routes
 router.post('/register', validateRegister, register)
 router.post('/login', validateLogin, login)
