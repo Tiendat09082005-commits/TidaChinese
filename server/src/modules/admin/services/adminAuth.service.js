@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import pool from '../../../config/db.js'
-import { createSession } from '../../shared/services/session.service.js'
+import { createSession, destroyAllUserSessions } from '../../shared/services/session.service.js'
 
 const getRoleName = (roleId) => {
   switch (roleId) {
@@ -51,6 +51,9 @@ export const loginAdmin = async ({ email, password, deviceInfo = null, ipAddress
     process.env.JWT_SECRET || 'super_secret_key_123',
     { expiresIn: '2h' } // 2 hours
   )
+
+  // Xóa tất cả các session cũ để đảm bảo Admin Single Session
+  await destroyAllUserSessions(user.id)
 
   // Save session in DB
   const expiresMs = 2 * 60 * 60 * 1000 // 2 hours
