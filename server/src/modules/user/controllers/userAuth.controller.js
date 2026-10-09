@@ -5,6 +5,7 @@ export const login = async (req, res, next) => {
   const { email, password } = req.body
   const deviceInfo = req.headers['user-agent']
   const ipAddress = req.ip || req.headers['x-forwarded-for']
+  console.log(ipAddress);
 
   try {
     const data = await loginUser({ email, password, deviceInfo, ipAddress })

@@ -7,15 +7,18 @@ export const getAllUsers = async (req, res, next) => {
     const limit = parseInt(req.query.limit) || 10
     const search = req.query.search || ''
     const roleType = req.query.roleType || 'USER'
+    const exactRole = req.query.exactRole || '' // 'ALL', '1', '2'
+    const isActive = req.query.isActive || '' // 'ALL', 'true', 'false'
 
-    const { total, users } = await userService.fetchUsersService({ page, limit, search, roleType })
+    const { total, users, stats } = await userService.fetchUsersService({ page, limit, search, roleType, exactRole, isActive })
 
     res.json({
       success: true,
       total,
       page,
       limit,
-      users
+      users,
+      stats
     })
   } catch (err) {
     next(err)
@@ -93,6 +96,35 @@ export const deleteUser = async (req, res, next) => {
 
     const result = await userService.deleteUserService(id, { mode, currentAdminId })
 
+    res.json({
+      success: true,
+      message: result.message
+    })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// PUT /api/admin/users/bulk/update
+export const bulkUpdateUsers = async (req, res, next) => {
+  try {
+    const { userIds, updateData } = req.body
+    const result = await userService.bulkUpdateUsersService(userIds, updateData)
+    res.json({
+      success: true,
+      message: result.message
+    })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// DELETE /api/admin/users/bulk/delete
+export const bulkDeleteUsers = async (req, res, next) => {
+  try {
+    const { userIds, mode } = req.body
+    const currentAdminId = req.user.id
+    const result = await userService.bulkDeleteUsersService(userIds, { mode, currentAdminId })
     res.json({
       success: true,
       message: result.message

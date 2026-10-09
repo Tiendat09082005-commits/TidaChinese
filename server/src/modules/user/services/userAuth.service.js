@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import pool from '../../../config/db.js'
-import { createSession } from '../../shared/services/session.service.js'
+import { createSession, destroyAllUserSessions } from '../../shared/services/session.service.js'
 
 const getRoleName = (roleId) => {
   switch (roleId) {
@@ -138,6 +138,9 @@ export const loginUser = async ({ email, password, deviceInfo = null, ipAddress 
     process.env.JWT_SECRET || 'super_secret_key_123',
     { expiresIn: '24h' }
   )
+
+  // Destroy any existing sessions for this user to enforce single-session policy
+  await destroyAllUserSessions(user.id)
 
   // Save session in DB
   const expiresMs = 24 * 60 * 60 * 1000 // 24 hours

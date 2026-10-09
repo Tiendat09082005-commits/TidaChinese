@@ -25,6 +25,13 @@ export const destroySession = async (token) => {
   await pool.query(deleteSessionQuery, [tokenHash])
 }
 
+// Delete all sessions for a specific user to enforce single-session policy
+export const destroyAllUserSessions = async (userId) => {
+  if (!userId) return
+  const deleteAllSessionsQuery = 'DELETE FROM user_sessions WHERE user_id = $1'
+  await pool.query(deleteAllSessionsQuery, [userId])
+}
+
 // Check if session is active and not expired in DB
 export const verifySession = async (token) => {
   if (!token) return false

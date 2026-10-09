@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { getDashboardData } from '../controllers/dashboard.controller.js'
-import { getAllUsers, createUser, getUserById, updateUser, deleteUser } from '../controllers/userMgmt.controller.js'
+import { getAllUsers, createUser, getUserById, updateUser, deleteUser, bulkUpdateUsers, bulkDeleteUsers } from '../controllers/userMgmt.controller.js'
 import { getReports } from '../controllers/report.controller.js'
 import { login } from '../controllers/adminAuth.controller.js'
 import { validateLogin } from '../../user/middlewares/userAuthValidation.js'
@@ -69,6 +69,8 @@ router.get('/dashboard', getDashboardData)
 // User Management Routes
 router.get('/users', getAllUsers)
 router.post('/users', validateCreateUser, createUser)
+router.post('/users/bulk-update', bulkUpdateUsers)
+router.post('/users/bulk-delete', bulkDeleteUsers)
 router.get('/users/:id', getUserById)
 router.put('/users/:id', validateUpdateUser, updateUser)
 router.delete('/users/:id', deleteUser)
