@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { 
   getUsers, 
   createUser, 
   updateUser, 
-  deleteUser 
+  deleteUser,
+  bulkUpdateUsers,
+  bulkDeleteUsers
 } from '../../services/userService'
 import Toast from '../../../../shared/components/Toast'
 
@@ -12,10 +14,19 @@ export default function UserManagement() {
   const navigate = useNavigate()
   const [users, setUsers] = useState([])
   const [total, setTotal] = useState(0)
+  const [stats, setStats] = useState({ total: 0, students: 0, teachers: 0, active: 0 })
   const [page, setPage] = useState(1)
-  const [limit] = useState(10)
+  const [limit, setLimit] = useState(10)
   const [search, setSearch] = useState('')
   const [roleType, setRoleType] = useState('USER') // 'USER' (roles 1,2) or 'ADMIN' (roles 3,4)
+  const [exactRole, setExactRole] = useState('ALL')
+  const [isActive, setIsActive] = useState('ALL')
+  
+  // Selection & Bulk actions
+  const [selectedUsers, setSelectedUsers] = useState([])
+  
+  // Kebab menu state
+  const [openMenuId, setOpenMenuId] = useState(null)
   
   // Loading & Alerts
   const [loading, setLoading] = useState(false)
@@ -36,6 +47,18 @@ export default function UserManagement() {
     hskGoalLevel: 3
   })
 
+  // Close kebab menu when clicking outside
+  const menuRef = useRef()
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setOpenMenuId(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
   // Fetch Users Function
   const fetchUsers = async () => {
     setLoading(true)
@@ -45,11 +68,16 @@ export default function UserManagement() {
         page,
         limit,
         search,
-        roleType
+        roleType,
+        exactRole,
+        isActive
       })
       if (response.data && response.data.success) {
         setUsers(response.data.users)
         setTotal(response.data.total)
+        if (response.data.stats) {
+          setStats(response.data.stats)
+        }
       }
     } catch (err) {
       setErrorMsg(err.response?.data?.message || 'Có lỗi xảy ra khi tải dữ liệu người dùng!')
@@ -60,12 +88,21 @@ export default function UserManagement() {
 
   useEffect(() => {
     fetchUsers()
-  }, [page, roleType])
+    // Reset selection when changing page/filters
+    setSelectedUsers([])
+    setOpenMenuId(null)
+  }, [page, limit, roleType, exactRole, isActive])
 
   const handleSearchSubmit = (e) => {
     e.preventDefault()
     setPage(1)
     fetchUsers()
+  }
+
+  const handleClearFilters = () => {
+    setExactRole('ALL')
+    setIsActive('ALL')
+    setPage(1)
   }
 
   const handleInputChange = (e) => {
@@ -108,12 +145,14 @@ export default function UserManagement() {
       hskGoalLevel: user.hsk_goal_level || 3
     })
     setActiveModal('edit')
+    setOpenMenuId(null)
   }
 
   const openDeleteModal = (user) => {
     setSelectedUser(user)
     setErrorMsg('')
     setActiveModal('delete')
+    setOpenMenuId(null)
   }
 
   const handleAddSubmit = async (e) => {
@@ -179,6 +218,63 @@ export default function UserManagement() {
     }
   }
 
+  // Bulk Actions
+  const handleSelectAll = (e) => {
+    if (e.target.checked) {
+      setSelectedUsers(users.map(u => u.id))
+    } else {
+      setSelectedUsers([])
+    }
+  }
+
+  const handleSelectUser = (id) => {
+    setSelectedUsers(prev => 
+      prev.includes(id) ? prev.filter(uId => uId !== id) : [...prev, id]
+    )
+  }
+
+  const handleBulkUpdateStatus = async (isActiveStatus) => {
+    if (!confirm('Bạn có chắc chắn muốn thay đổi trạng thái của các tài khoản đã chọn?')) return
+    try {
+      const res = await bulkUpdateUsers({ userIds: selectedUsers, updateData: { isActive: isActiveStatus } })
+      if (res.data && res.data.success) {
+        setSuccessMsg(res.data.message)
+        setSelectedUsers([])
+        fetchUsers()
+      }
+    } catch (err) {
+      setErrorMsg(err.response?.data?.message || 'Lỗi khi cập nhật trạng thái hàng loạt!')
+    }
+  }
+
+  const handleBulkUpdateRole = async (newRoleId) => {
+    if (!confirm('Bạn có chắc chắn muốn thay đổi vai trò của các tài khoản đã chọn?')) return
+    try {
+      const res = await bulkUpdateUsers({ userIds: selectedUsers, updateData: { roleId: newRoleId } })
+      if (res.data && res.data.success) {
+        setSuccessMsg(res.data.message)
+        setSelectedUsers([])
+        fetchUsers()
+      }
+    } catch (err) {
+      setErrorMsg(err.response?.data?.message || 'Lỗi khi cập nhật vai trò hàng loạt!')
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    if (!confirm('Bạn có chắc chắn muốn xóa (vĩnh viễn) các tài khoản đã chọn? Hành động này không thể hoàn tác!')) return
+    try {
+      const res = await bulkDeleteUsers({ userIds: selectedUsers, mode: 'hard' })
+      if (res.data && res.data.success) {
+        setSuccessMsg(res.data.message)
+        setSelectedUsers([])
+        fetchUsers()
+      }
+    } catch (err) {
+      setErrorMsg(err.response?.data?.message || 'Lỗi khi xóa tài khoản hàng loạt!')
+    }
+  }
+
   const formatDate = (isoString) => {
     if (!isoString) return '-'
     const date = new Date(isoString)
@@ -211,8 +307,10 @@ export default function UserManagement() {
     }
   }
 
+  const totalPages = Math.ceil(total / limit) || 1;
+
   return (
-    <div className="min-h-full">
+    <div className="min-h-full pb-10">
       {/* Breadcrumbs & Header */}
       <div className="mb-6">
         <nav className="flex items-center gap-2 text-gray-500 mb-3 text-xs font-semibold">
@@ -225,16 +323,6 @@ export default function UserManagement() {
           <h1 className="text-xl font-bold text-[#111827]">Quản lý người dùng</h1>
           
           <div className="flex flex-wrap items-center gap-3">
-            <form onSubmit={handleSearchSubmit} className="relative">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-[20px]">search</span>
-              <input 
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                type="text" 
-                placeholder="Tìm kiếm theo tên, email..." 
-                className="pl-10 pr-4 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-[#006e2f] w-64 transition-all"
-              />
-            </form>
             <button 
               onClick={openAddModal}
               className="bg-[#006e2f] hover:bg-[#005321] text-white px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 shadow-sm cursor-pointer"
@@ -246,151 +334,399 @@ export default function UserManagement() {
         </div>
       </div>
 
+      {/* Quick Stats - 4 Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-full bg-[#006e2f]/10 text-[#006e2f] flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-[24px]">group</span>
+          </div>
+          <div>
+            <div className="text-2xl font-black text-gray-800">{stats.total}</div>
+            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tổng người dùng</div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-[24px]">school</span>
+          </div>
+          <div>
+            <div className="text-2xl font-black text-gray-800">{stats.students}</div>
+            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Học viên</div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-[24px]">history_edu</span>
+          </div>
+          <div>
+            <div className="text-2xl font-black text-gray-800">{stats.teachers}</div>
+            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Giáo viên</div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-[24px]">task_alt</span>
+          </div>
+          <div>
+            <div className="text-2xl font-black text-gray-800">{stats.active}</div>
+            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Đang hoạt động</div>
+          </div>
+        </div>
+      </div>
+
       {/* Reusable Stateful Toast Feedbacks */}
       {successMsg && <Toast message={successMsg} type="success" onClose={() => setSuccessMsg('')} />}
       {errorMsg && activeModal === null && <Toast message={errorMsg} type="error" onClose={() => setErrorMsg('')} />}
 
-
       {/* Tabs Menu */}
-      <div className="flex border-b border-gray-200 mb-6 bg-white rounded-t-2xl px-6 shadow-sm border-t border-x">
+      <div className="flex border-b border-gray-200 mb-6 bg-white rounded-t-2xl px-6 shadow-sm border-t border-x overflow-x-auto whitespace-nowrap">
         <button 
-          onClick={() => { setRoleType('USER'); setPage(1); }}
-          className={`px-6 py-4 border-b-2 font-bold text-sm transition-all ${
+          onClick={() => { setRoleType('USER'); setPage(1); setExactRole('ALL'); setIsActive('ALL'); }}
+          className={`px-6 py-4 border-b-2 font-bold text-sm transition-all ` + (
             roleType === 'USER' 
               ? 'border-[#006e2f] text-[#006e2f]' 
               : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
+          )}
         >
           Học viên & Giáo viên
         </button>
         <button 
-          onClick={() => { setRoleType('ADMIN'); setPage(1); }}
-          className={`px-6 py-4 border-b-2 font-bold text-sm transition-all ${
+          onClick={() => { setRoleType('ADMIN'); setPage(1); setExactRole('ALL'); setIsActive('ALL'); }}
+          className={`px-6 py-4 border-b-2 font-bold text-sm transition-all ` + (
             roleType === 'ADMIN' 
               ? 'border-[#006e2f] text-[#006e2f]' 
               : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
+          )}
         >
           Quản trị viên
         </button>
       </div>
 
+      {/* Search & Filters */}
+      <div className="flex flex-col md:flex-row items-center justify-between mb-4 gap-4 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+        <form onSubmit={handleSearchSubmit} className="relative w-full md:w-auto">
+          <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-[20px]">search</span>
+          <input 
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            type="text" 
+            placeholder="Tìm kiếm theo tên, email..." 
+            className="pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#006e2f] focus:ring-1 focus:ring-[#006e2f] w-full md:w-72 transition-all"
+          />
+        </form>
+        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+          <select 
+            value={exactRole} 
+            onChange={(e) => { setExactRole(e.target.value); setPage(1); }}
+            className="px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:border-[#006e2f] transition-all flex-1 md:flex-none"
+          >
+            <option value="ALL">Vai trò: Tất cả</option>
+            {roleType === 'USER' ? (
+              <>
+                <option value="1">Học viên</option>
+                <option value="2">Giáo viên</option>
+              </>
+            ) : (
+              <>
+                <option value="3">Quản trị (Admin)</option>
+                <option value="4">Tối cao (Superadmin)</option>
+              </>
+            )}
+          </select>
+
+          <select 
+            value={isActive} 
+            onChange={(e) => { setIsActive(e.target.value); setPage(1); }}
+            className="px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:border-[#006e2f] transition-all flex-1 md:flex-none"
+          >
+            <option value="ALL">Trạng thái: Tất cả</option>
+            <option value="true">Hoạt động</option>
+            <option value="false">Đã khóa</option>
+          </select>
+
+          {(exactRole !== 'ALL' || isActive !== 'ALL' || search !== '') && (
+            <button 
+              onClick={handleClearFilters}
+              className="text-[#006e2f] hover:text-[#005321] text-sm font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors px-2 py-2 w-full md:w-auto"
+            >
+              <span className="material-symbols-outlined text-[18px]">filter_alt_off</span>
+              Xóa lọc
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Floating Action Bar (Bulk Actions) */}
+      {selectedUsers.length > 0 && (
+        <div className="sticky top-4 z-40 mb-4 mx-auto max-w-max bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-6 animate-in fade-in slide-in-from-top-4 duration-300 border border-slate-700">
+          <div className="flex items-center gap-2 border-r border-slate-700 pr-4">
+            <span className="material-symbols-outlined text-[#00e676]">check_circle</span>
+            <span className="font-bold text-sm">Đã chọn {selectedUsers.length}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {roleType === 'USER' && (
+              <button 
+                onClick={() => handleBulkUpdateRole(2)}
+                className="px-3 py-1.5 hover:bg-white/10 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
+              >
+                <span className="material-symbols-outlined text-[16px]">switch_access_shortcut</span> Đổi thành GV
+              </button>
+            )}
+            <button 
+              onClick={() => handleBulkUpdateStatus(false)}
+              className="px-3 py-1.5 hover:bg-white/10 rounded-lg text-xs font-semibold transition-colors text-amber-400 flex items-center gap-1.5"
+            >
+              <span className="material-symbols-outlined text-[16px]">lock</span> Khóa
+            </button>
+            <button 
+              onClick={() => handleBulkUpdateStatus(true)}
+              className="px-3 py-1.5 hover:bg-white/10 rounded-lg text-xs font-semibold transition-colors text-emerald-400 flex items-center gap-1.5"
+            >
+              <span className="material-symbols-outlined text-[16px]">lock_open</span> Mở khóa
+            </button>
+            <button 
+              onClick={handleBulkDelete}
+              className="px-3 py-1.5 hover:bg-red-500/20 rounded-lg text-xs font-semibold transition-colors text-red-400 flex items-center gap-1.5"
+            >
+              <span className="material-symbols-outlined text-[16px]">delete</span> Xóa
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Premium Data Table Container */}
-      <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.04)] font-sans transition-all duration-300">
+      <div className="bg-white border border-gray-100 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] font-sans transition-all duration-300 relative">
         {loading ? (
           <div className="p-20 text-center text-slate-400 font-medium">Đang tải dữ liệu người dùng...</div>
         ) : users.length === 0 ? (
-          <div className="p-20 text-center text-slate-400 font-medium">Không tìm thấy tài khoản người dùng nào.</div>
+          <div className="p-16 flex flex-col items-center justify-center text-center">
+            <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-4">
+              <span className="material-symbols-outlined text-4xl text-gray-300">person_off</span>
+            </div>
+            <h3 className="text-lg font-bold text-gray-800 mb-1">Chưa có người dùng nào</h3>
+            <p className="text-sm text-gray-500 mb-6 max-w-xs">Thử thay đổi bộ lọc tìm kiếm hoặc thêm mới người dùng vào hệ thống.</p>
+            <button 
+              onClick={openAddModal}
+              className="bg-[#006e2f] hover:bg-[#005321] text-white px-5 py-2.5 rounded-xl text-sm font-bold transition-all shadow-sm cursor-pointer inline-flex gap-2 items-center"
+            >
+              <span className="material-symbols-outlined text-[20px]">person_add</span> Thêm người dùng
+            </button>
+          </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse table-auto">
-              <thead>
-                <tr className="bg-slate-50/75 border-b border-slate-100">
-                  <th className="px-6 py-5 text-[11px] font-bold uppercase tracking-widest text-slate-400 text-left">Người dùng</th>
-                  <th className="px-6 py-5 text-[11px] font-bold uppercase tracking-widest text-slate-400 text-left">Email liên hệ</th>
-                  <th className="px-6 py-5 text-[11px] font-bold uppercase tracking-widest text-slate-400 text-left">Vai trò</th>
-                  <th className="px-6 py-5 text-[11px] font-bold uppercase tracking-widest text-slate-400 text-left">Ngày tham gia</th>
-                  <th className="px-6 py-5 text-[11px] font-bold uppercase tracking-widest text-slate-400 text-left">Trạng thái</th>
-                  <th className="px-6 py-5 text-[11px] font-bold uppercase tracking-widest text-slate-400 text-right">Thao tác</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100/60">
-                {users.map((user) => (
-                  <tr 
-                    key={user.id} 
-                    className="transition-all duration-200 hover:bg-[#006e2f]/5"
-                  >
-                    <td className="px-6 py-5 text-left">
-                      <div className="flex items-center gap-3.5">
-                        <div className="relative group">
-                          <img 
-                            src={user.avatar_url || 'https://lh3.googleusercontent.com/aida-public/AB6AXuBeFPvIyOj8V_hPCH86aE6eW_YrVXqcJ1aYi3T7EJ4J3wvfAjHpKpEnCXiRUh_k99hTLRBNZ425qEEcchEO9h5YDhcRWzxiaFz7b4DNaXOVdRqH4JpQ8n4OGTinluL4sQSIV2KoqmuYKRy97Ch50fuikFBPdqEYPFRxHZCeNyxQ-4HQJpswKistMNWloIZH35EQjfox8r9qPXI6zuWJJmat2g5TqnrUQ7NDmpT8Ehx4VWaKgzYv7K2txNuCXDv2KSkCB02fQitqFG4'} 
-                            alt={user.display_name} 
-                            className="w-10 h-10 rounded-full object-cover ring-2 ring-white shadow-sm transition-transform duration-200 group-hover:scale-105"
-                          />
+          <>
+            {/* Desktop Table View */}
+            <div className="hidden md:block overflow-x-auto min-h-[300px]">
+              <table className="w-full text-left border-collapse table-auto">
+                <thead>
+                  <tr className="bg-slate-50/75 border-b border-slate-100">
+                    <th className="px-6 py-4 w-12 text-center">
+                      <input 
+                        type="checkbox" 
+                        className="w-4 h-4 rounded border-gray-300 text-[#006e2f] focus:ring-[#006e2f] cursor-pointer accent-[#006e2f]"
+                        checked={users.length > 0 && selectedUsers.length === users.length}
+                        onChange={handleSelectAll}
+                      />
+                    </th>
+                    <th className="px-4 py-5 text-[11px] font-bold uppercase tracking-widest text-slate-400 text-left">Người dùng</th>
+                    <th className="px-6 py-5 text-[11px] font-bold uppercase tracking-widest text-slate-400 text-left">Email liên hệ</th>
+                    <th className="px-6 py-5 text-[11px] font-bold uppercase tracking-widest text-slate-400 text-left">Vai trò</th>
+                    <th className="px-6 py-5 text-[11px] font-bold uppercase tracking-widest text-slate-400 text-left">Ngày tham gia</th>
+                    <th className="px-6 py-5 text-[11px] font-bold uppercase tracking-widest text-slate-400 text-left">Trạng thái</th>
+                    <th className="px-6 py-5 text-[11px] font-bold uppercase tracking-widest text-slate-400 text-right">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100/60">
+                  {users.map((user) => (
+                    <tr 
+                      key={user.id} 
+                      className={`transition-all duration-200 hover:bg-[#006e2f]/5 ${selectedUsers.includes(user.id) ? 'bg-[#006e2f]/5' : ''}`}
+                    >
+                      <td className="px-6 py-5 text-center">
+                        <input 
+                          type="checkbox" 
+                          className="w-4 h-4 rounded border-gray-300 text-[#006e2f] focus:ring-[#006e2f] cursor-pointer accent-[#006e2f]"
+                          checked={selectedUsers.includes(user.id)}
+                          onChange={() => handleSelectUser(user.id)}
+                        />
+                      </td>
+                      <td className="px-4 py-5 text-left">
+                        <div className="flex items-center gap-3.5">
+                          <div className="relative group">
+                            <img 
+                              src={user.avatar_url || 'https://lh3.googleusercontent.com/aida-public/AB6AXuBeFPvIyOj8V_hPCH86aE6eW_YrVXqcJ1aYi3T7EJ4J3wvfAjHpKpEnCXiRUh_k99hTLRBNZ425qEEcchEO9h5YDhcRWzxiaFz7b4DNaXOVdRqH4JpQ8n4OGTinluL4sQSIV2KoqmuYKRy97Ch50fuikFBPdqEYPFRxHZCeNyxQ-4HQJpswKistMNWloIZH35EQjfox8r9qPXI6zuWJJmat2g5TqnrUQ7NDmpT8Ehx4VWaKgzYv7K2txNuCXDv2KSkCB02fQitqFG4'} 
+                              alt={user.display_name} 
+                              className="w-10 h-10 rounded-full object-cover ring-2 ring-white shadow-sm transition-transform duration-200 group-hover:scale-105"
+                            />
+                          </div>
+                          <div className="flex flex-col">
+                            <span 
+                              className="text-sm font-semibold text-slate-800 hover:text-[#006e2f] transition-colors cursor-pointer"
+                              onClick={() => navigate('detail/' + user.id)}
+                            >
+                              {user.display_name}
+                            </span>
+                            <span className="text-[11px] text-slate-400 font-medium mt-0.5">ID: #{user.id}</span>
+                          </div>
                         </div>
-                        <div className="flex flex-col">
-                          <span 
-                            className="text-sm font-semibold text-slate-800 hover:text-[#006e2f] transition-colors cursor-pointer"
-                            onClick={() => navigate(`detail/${user.id}`)}
+                      </td>
+                      <td className="px-6 py-5 text-sm text-slate-500 font-medium text-left">{user.email}</td>
+                      <td className="px-6 py-5 text-left">
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase border ${getRoleBadgeStyle(user.role_id)}`}>
+                          {getRoleLabel(user.role_id)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-5 text-sm text-slate-400 font-medium text-left">{formatDate(user.created_at)}</td>
+                      <td className="px-6 py-5 text-left">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                          user.is_active 
+                            ? 'bg-emerald-50 text-emerald-700' 
+                            : 'bg-rose-50 text-rose-700'
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${user.is_active ? 'bg-emerald-600' : 'bg-rose-600'}`}></span>
+                          {user.is_active ? 'Hoạt động' : 'Đã khóa'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-5 text-right relative">
+                        <button 
+                          onClick={() => setOpenMenuId(openMenuId === user.id ? null : user.id)}
+                          className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all rounded-full cursor-pointer inline-flex items-center justify-center"
+                        >
+                          <span className="material-symbols-outlined text-[20px]">more_vert</span>
+                        </button>
+                        
+                        {/* Kebab Menu Dropdown */}
+                        {openMenuId === user.id && (
+                          <div 
+                            ref={menuRef}
+                            className="absolute right-8 top-10 w-44 bg-white rounded-xl shadow-xl border border-gray-100 z-30 py-2 animate-in fade-in zoom-in-95 duration-100"
                           >
-                            {user.display_name}
+                            <button 
+                              onClick={() => navigate('detail/' + user.id)}
+                              className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3 transition-colors cursor-pointer"
+                            >
+                              <span className="material-symbols-outlined text-[18px] text-gray-400">visibility</span>
+                              Xem chi tiết
+                            </button>
+                            <button 
+                              onClick={() => openEditModal(user)}
+                              className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3 transition-colors cursor-pointer"
+                            >
+                              <span className="material-symbols-outlined text-[18px] text-amber-500">edit_square</span>
+                              Chỉnh sửa
+                            </button>
+                            <button 
+                              onClick={() => openDeleteModal(user)}
+                              className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors cursor-pointer"
+                            >
+                              <span className="material-symbols-outlined text-[18px]">lock</span>
+                              Khóa/Xóa
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile List View */}
+            <div className="block md:hidden divide-y divide-gray-100">
+              {users.map((user) => (
+                <div key={user.id} className={`p-4 relative transition-colors ${selectedUsers.includes(user.id) ? 'bg-[#006e2f]/5' : 'bg-white'}`}>
+                  <div className="absolute top-4 right-4 z-10 flex gap-2">
+                    <button 
+                      onClick={() => setOpenMenuId(openMenuId === user.id ? null : user.id)}
+                      className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all rounded-full cursor-pointer inline-flex items-center justify-center"
+                    >
+                      <span className="material-symbols-outlined text-[20px]">more_vert</span>
+                    </button>
+                    {openMenuId === user.id && (
+                      <div 
+                        ref={menuRef}
+                        className="absolute right-0 top-10 w-44 bg-white rounded-xl shadow-xl border border-gray-100 z-30 py-2"
+                      >
+                        <button onClick={() => navigate('detail/' + user.id)} className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3 transition-colors cursor-pointer">
+                          <span className="material-symbols-outlined text-[18px] text-gray-400">visibility</span> Xem chi tiết
+                        </button>
+                        <button onClick={() => openEditModal(user)} className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3 transition-colors cursor-pointer">
+                          <span className="material-symbols-outlined text-[18px] text-amber-500">edit_square</span> Chỉnh sửa
+                        </button>
+                        <button onClick={() => openDeleteModal(user)} className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors cursor-pointer">
+                          <span className="material-symbols-outlined text-[18px]">lock</span> Khóa/Xóa
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <input 
+                      type="checkbox" 
+                      className="mt-1 w-4 h-4 rounded border-gray-300 text-[#006e2f] focus:ring-[#006e2f] cursor-pointer shrink-0 accent-[#006e2f]"
+                      checked={selectedUsers.includes(user.id)}
+                      onChange={() => handleSelectUser(user.id)}
+                    />
+                    <div className="flex items-center gap-3 w-full">
+                      <img 
+                        src={user.avatar_url || 'https://lh3.googleusercontent.com/aida-public/AB6AXuBeFPvIyOj8V_hPCH86aE6eW_YrVXqcJ1aYi3T7EJ4J3wvfAjHpKpEnCXiRUh_k99hTLRBNZ425qEEcchEO9h5YDhcRWzxiaFz7b4DNaXOVdRqH4JpQ8n4OGTinluL4sQSIV2KoqmuYKRy97Ch50fuikFBPdqEYPFRxHZCeNyxQ-4HQJpswKistMNWloIZH35EQjfox8r9qPXI6zuWJJmat2g5TqnrUQ7NDmpT8Ehx4VWaKgzYv7K2txNuCXDv2KSkCB02fQitqFG4'} 
+                        alt={user.display_name} 
+                        className="w-12 h-12 rounded-full object-cover shadow-sm shrink-0"
+                      />
+                      <div className="flex flex-col">
+                        <span className="text-base font-bold text-slate-800">{user.display_name}</span>
+                        <span className="text-xs text-slate-500 mt-0.5 break-all">{user.email}</span>
+                        <div className="flex gap-2 items-center mt-2 flex-wrap">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase border ${getRoleBadgeStyle(user.role_id)}`}>
+                            {getRoleLabel(user.role_id)}
                           </span>
-                          <span className="text-[11px] text-slate-400 font-medium mt-0.5">ID: #{user.id}</span>
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${user.is_active ? 'border-emerald-100 bg-emerald-50 text-emerald-600' : 'border-rose-100 bg-rose-50 text-rose-600'}`}>
+                            {user.is_active ? 'Hoạt động' : 'Đã khóa'}
+                          </span>
                         </div>
                       </div>
-                    </td>
-                    <td className="px-6 py-5 text-sm text-slate-500 font-medium text-left">{user.email}</td>
-                    <td className="px-6 py-5 text-left">
-                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase border ${getRoleBadgeStyle(user.role_id)}`}>
-                        {getRoleLabel(user.role_id)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-5 text-sm text-slate-400 font-medium text-left">{formatDate(user.created_at)}</td>
-                    <td className="px-6 py-5 text-left">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${
-                        user.is_active 
-                          ? 'bg-emerald-50 text-emerald-700' 
-                          : 'bg-rose-50 text-rose-700'
-                      }`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${user.is_active ? 'bg-emerald-600' : 'bg-rose-600'}`}></span>
-                        {user.is_active ? 'Hoạt động' : 'Tạm khóa'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-5 text-right space-x-1.5">
-                      <button 
-                        onClick={() => navigate(`detail/${user.id}`)}
-                        className="p-2 text-slate-400 hover:text-[#006e2f] hover:bg-[#006e2f]/10 transition-all rounded-full cursor-pointer inline-flex items-center justify-center" 
-                        title="Xem chi tiết"
-                      >
-                        <span className="material-symbols-outlined text-[18px]">visibility</span>
-                      </button>
-                      <button 
-                        onClick={() => openEditModal(user)}
-                        className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-all rounded-full cursor-pointer inline-flex items-center justify-center" 
-                        title="Chỉnh sửa"
-                      >
-                        <span className="material-symbols-outlined text-[18px]">edit_square</span>
-                      </button>
-                      <button 
-                        onClick={() => openDeleteModal(user)}
-                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all rounded-full cursor-pointer inline-flex items-center justify-center" 
-                        title="Xóa/Khóa"
-                      >
-                        <span className="material-symbols-outlined text-[18px]">delete_forever</span>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
 
         {/* Pagination Panel */}
-        <div className="p-5 border-t border-slate-100 flex justify-between items-center bg-white">
-          <p className="text-xs text-slate-400 font-semibold">
-            Hiển thị {users.length > 0 ? (page - 1) * limit + 1 : 0}-{Math.min(page * limit, total)} trong số {total} người dùng
-          </p>
-          <div className="flex gap-2">
+        <div className="p-5 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4 bg-white rounded-b-2xl">
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-slate-500 font-medium">Hiển thị</span>
+            <select 
+              value={limit} 
+              onChange={(e) => { setLimit(parseInt(e.target.value)); setPage(1); }}
+              className="px-2 py-1 bg-gray-50 border border-gray-200 rounded text-xs font-bold text-gray-700 focus:outline-none focus:border-[#006e2f] transition-all cursor-pointer"
+            >
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+            </select>
+            <span className="text-xs text-slate-500 font-medium">/ {total} tài khoản</span>
+          </div>
+          
+          <div className="flex items-center gap-3">
             <button 
               onClick={() => setPage(p => Math.max(1, p - 1))}
               disabled={page === 1}
-              className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 transition-all cursor-pointer inline-flex items-center justify-center"
+              className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 transition-all cursor-pointer inline-flex items-center justify-center bg-white"
             >
               <span className="material-symbols-outlined text-[18px]">chevron_left</span>
             </button>
+            <span className="text-xs font-bold text-slate-700">Trang {page} / {totalPages}</span>
             <button 
               onClick={() => setPage(p => p + 1)}
-              disabled={page * limit >= total}
-              className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 transition-all cursor-pointer inline-flex items-center justify-center"
+              disabled={page >= totalPages}
+              className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 transition-all cursor-pointer inline-flex items-center justify-center bg-white"
             >
               <span className="material-symbols-outlined text-[18px]">chevron_right</span>
             </button>
           </div>
         </div>
       </div>
-
 
       {/* Add User Modal */}
       {activeModal === 'add' && (

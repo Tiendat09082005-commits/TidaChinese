@@ -22,3 +22,6 @@ export const updateUser = (id, data) => adminApi.put(`/users/${id}`, data)
 export const deleteUser = (id, params) => adminApi.delete(`/users/${id}`, { params })
 
 export default adminApi
+
+export const bulkUpdateUsers = (data) => adminApi.post('/users/bulk-update', data)
+export const bulkDeleteUsers = (data) => adminApi.post('/users/bulk-delete', data)

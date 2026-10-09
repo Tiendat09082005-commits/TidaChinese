@@ -122,8 +122,6 @@ export default function UserLayout({ children }) {
         <div className="flex-1 space-y-2 overflow-hidden">
           {!isCollapsed && (
             <div className="px-2 py-1 mb-4 transition-opacity duration-300">
-              <h2 className="text-xl font-black text-[#006e2f]">Learning Hub</h2>
-              <p className="text-gray-500 text-xs font-semibold">Level 1 Learner</p>
             </div>
           )}
           <nav className="space-y-2">

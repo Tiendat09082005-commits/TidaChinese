@@ -89,7 +89,6 @@ export default function AdminLayout() {
               <div className="w-8 h-8 rounded bg-[#006e2f] flex items-center justify-center text-white">
                 <span className="material-symbols-outlined text-[20px]">admin_panel_settings</span>
               </div>
-              <span className="text-base font-bold text-[#006e2f]">Admin Panel</span>
             </div>
             <p className="text-xs text-gray-400 font-semibold leading-none mt-1">TidaChinese Dashboard</p>
           </div>
@@ -124,13 +123,7 @@ export default function AdminLayout() {
 
           {/* Footer CTA & Logout */}
           <div className="p-4 border-t border-gray-200/50 space-y-2">
-            <button 
-              onClick={() => navigate('/admin/users')}
-              className="w-full flex items-center justify-center gap-2 bg-[#006e2f] hover:bg-[#005321] text-white py-3 px-4 rounded-lg text-sm font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
-            >
-              <span className="material-symbols-outlined text-[18px]">add</span>
-              <span>Thêm người dùng</span>
-            </button>
+
             <button 
               onClick={async () => {
                 try {
